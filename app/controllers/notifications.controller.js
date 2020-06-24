@@ -39,6 +39,11 @@ const PushMessage = methods.loadModel('push_message');
             res.send(newPushNotificationData);
 
         }else{
+            res.send({
+                success : 1,
+                notifications : [],
+                message : "No notifications"
+            });
 
         }
 
