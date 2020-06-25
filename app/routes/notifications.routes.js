@@ -1,14 +1,11 @@
 module.exports = (app, methods, options) => {
     const notifications = methods.loadController('notifications', options);
 
-    notifications.methods.get('/push', notifications.getPushNotifications, {
+    notifications.methods.get('/start-scanning', notifications.start, {
         auth: false
     });
-    notifications.methods.get('/message', notifications.getMessageNotifications, {
+    notifications.methods.get('/reload-config', notifications.reloadConfig, {
         auth: false
     });
-    notifications.methods.get('/email', notifications.getEmailNotifications, {
-        auth: false
-    });
-
+ 
 }

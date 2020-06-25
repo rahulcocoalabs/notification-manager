@@ -7,6 +7,9 @@ module.exports = function NotificationManagerConfig(sequelize) {
         name: {
           type: Sequelize.STRING
         },
+        onesignal_app_id : {
+          type: Sequelize.STRING
+        },
         onesignal_api_key : {
           type: Sequelize.STRING
         },
@@ -19,13 +22,13 @@ module.exports = function NotificationManagerConfig(sequelize) {
         sendgrid_api_key : {
           type: Sequelize.STRING
         },
-        scanning_interval_push_messages : {
+        scanning_interval_seconds_push_messages : {
           type: Sequelize.FLOAT
         },
-        scanning_interval_text_messages : {
+        scanning_interval_seconds_text_messages : {
           type: Sequelize.FLOAT
         },
-        scanning_interval_email_messages : {
+        scanning_interval_seconds_email_messages : {
           type: Sequelize.FLOAT
         },
         status: {

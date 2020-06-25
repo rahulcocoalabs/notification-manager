@@ -23,13 +23,14 @@ var options = {
 };
 const NotificationManagerConfigSchema = mongoose.Schema({
     name: String,
+    onesignalAppId : String,
     onesignalApiKey: String,
     twillioApiKey: String,
     msg91ApiKey: String,
     sendgridApiKey: String,
-    scanningIntervalPushMessages: Number,
-    scanningIntervalTextMessages: Number,
-    scanningIntervalEmailMessages: Number,
+    scanningIntervalSecondsPushMessages: Number,
+    scanningIntervalSecondsTextMessages: Number,
+    scanningIntervalSecondsEmailMessages: Number,
     status: Number,
     tsCreatedAt: Number,
     tsModifiedAt: Number
