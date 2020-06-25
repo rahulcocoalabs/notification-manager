@@ -13,7 +13,7 @@ module.exports = function PushMessage(sequelize) {
         priority : {
           type: Sequelize.STRING
         },
-        tags_csv : {
+        filters_json_arr : {
           type: Sequelize.STRING
         },
         segments_csv : {

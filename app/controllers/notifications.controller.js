@@ -25,13 +25,15 @@ function notificationsController(methods, options) {
     this.oneSignalConfig = null;
     this.oneSignalClient = null;
     this.loadConfig = async () => {
+
         this.isMongoDb = options.mongoose !== undefined;
         this.isMySqlDb = options.sequelize !== undefined;
         await this.loadSettings();
-        if(this.oneSignalConfig){
-            this.oneSignalClient = new OneSignal.Client(this.oneSignalConfig.onesignalAppId, this.oneSignalConfig.oneSignalApiKey);
+      
+        if (this.oneSignalConfig) {
+            this.oneSignalClient = new OneSignal.Client(this.oneSignalConfig.oneSignalAppId, this.oneSignalConfig.oneSignalApiKey);
         }
-        
+
 
         /**?
          * 1. Identify the db 
@@ -43,6 +45,13 @@ function notificationsController(methods, options) {
          */
     }
     this.reloadConfig = async () => {
+        this.isProcessingOnGoing = false;
+        this.scanningIntervalSeconds = 5;
+        this.isMySqlDb = true;
+        this.isMongoDb = false;
+        this.timer = null;
+        this.oneSignalConfig = null;
+        this.oneSignalClient = null;
         /**?
          * 1. Stop the timer
          * 2. set timer as null
@@ -57,7 +66,7 @@ function notificationsController(methods, options) {
             where: {
                 status: 1
             },
-            attributes: ['scanning_interval_push_messages', 'onesignal_api_key', 'onesignal_app_id']
+            attributes: ['scanning_interval_seconds_push_messages', 'onesignal_api_key', 'onesignal_app_id']
         })
             .catch(err => {
                 return {
@@ -71,7 +80,7 @@ function notificationsController(methods, options) {
             this.scanningIntervalSeconds = parseFloat(scanningIntervalData.scanning_interval_seconds_push_messages);
             this.oneSignalConfig = {
                 oneSignalAppId: scanningIntervalData.onesignal_app_id,
-                onesignalApiKey: scanningIntervalData.onesignal_api_key,
+                oneSignalApiKey: scanningIntervalData.onesignal_api_key,
             }
         }
 
@@ -150,7 +159,7 @@ function notificationsController(methods, options) {
         } else if (this.isMySqlDb) {
             notificationList = await this.getPushMessageFromMySqlDb();
         }
-        await processPushNessages(notificationList)
+        await this.processPushNessages(notificationList)
         /*
     1. identify db
     
@@ -161,16 +170,25 @@ function notificationsController(methods, options) {
     }
 
     this.processPushNessages = async (notificationsList) => {
-        
-        if (isMongoDb) {
+        notificationsList = JSON.parse(JSON.stringify(notificationsList));
+        if (this.isMongoDb) {
             await Promise.all(notificationsList.map(async (notification) => {
-                await this.sendPushNotification(notification);
+                await this.sendPushNotificationMongoDb(notification);
                 let updateData = await this.markAsSentToMongoDb(notification);
             }));
         }
-        else if (isMySqlDb) {
+        else if (this.isMySqlDb) {
+       
             await Promise.all(notificationsList.map(async (notification) => {
-                await this.sendPushNotification(notification);
+                
+                const areThereAnyCommas = notification.segments_csv.includes(',');
+                if (areThereAnyCommas) {
+                    notification.segments_csv = notification.segments_csv.split(',');
+                }
+                if (notification.filters_json_arr) {
+                    notification.notification.filters_json_arr = JSON.parse(notification.notification.filters_json_arr);
+                }
+                await this.sendPushNotificationMySql(notification);
                 let updateData = await this.markAsSentToMySqlDb(notification);
             }));
 
@@ -226,14 +244,75 @@ b. call mark push notification as sent
 
     }
 
-
-    this.sendPushNotification = async (notification) => {
+    this.sendPushNotificationMySql = async (notification) => {
         /*
         1. Sends push notifciation using the given notification object through onesignal
         2. call insertonotificationmanagerlog with the raw message to onesignal
         */
 
-        let insert = await this.insertLog(notification);
+        var notificationData = {
+            contents: {
+                'tr': notification.title,
+                'en': notification.message,
+            },
+            included_segments: notification.segments_csv,
+            filters: notification.filters_json_arr
+        };
+
+        // using async/await
+        try {
+          
+            const response = await this.oneSignalClient.createNotification(notificationData);
+            console.log("response");
+            console.log(response);
+            console.log("response");
+            console.log(response.body.id);
+            // let insert = await this.insertLog(notification);
+
+        } catch (e) {
+            console.log("e")
+            console.log(e)
+            console.log("e")
+            if (e instanceof OneSignal.HTTPError) {
+                // When status code of HTTP response is not 2xx, HTTPError is thrown.
+                console.log(e.statusCode);
+                console.log(e.body);
+            }
+        }
+
+    }
+
+
+
+    this.sendPushNotificationMongoDb = async (notification) => {
+        /*
+        1. Sends push notifciation using the given notification object through onesignal
+        2. call insertonotificationmanagerlog with the raw message to onesignal
+        */
+
+        var notificationData = {
+            contents: {
+                'tr': notification.title,
+                'en': notification.message,
+            },
+            included_segments: notification.segmentsCsv,
+            filters: notification.filtersJsonArr
+        };
+
+        // using async/await
+        try {
+            const response = await this.oneSignalClient.createNotification(notificationData);
+            console.log(response.body.id);
+            let insert = await this.insertLog(notification);
+
+        } catch (e) {
+            if (e instanceof OneSignal.HTTPError) {
+                // When status code of HTTP response is not 2xx, HTTPError is thrown.
+                console.log(e.statusCode);
+                console.log(e.body);
+            }
+        }
+
     }
 
     this.insertLog = async (notification) => {
@@ -251,10 +330,11 @@ b. call mark push notification as sent
 
 
     this.insertLogToMySqlDb = async (notification) => {
+        
         let logObj = {
 
         }
-        let createLog = await MysqlNotificationManagerLog.create(logObj)
+        let logData = await MysqlNotificationManagerLog.create(logObj)
             .catch(err => {
                 return {
                     success: 0,
@@ -263,13 +343,31 @@ b. call mark push notification as sent
                 }
             })
 
-        if (newOtpData && newOtpData.error && (newOtpData.error !== null)) {
-            return res.send(newOtpData);
+        if (logData && logData.error && (logData.error !== null)) {
+            return false
         }
+        return true;
 
     }
     this.insertLogToMongoDb = async (notification) => {
+        let logObj = {
+            tsCreatedAt: Date.now(),
+            tsModifiedAt: null
+        }
+        const notificationLogObj = new MongodbNotificationManagerLog(logObj);
 
+        let logData = await notificationLogObj.save()
+            .catch(err => {
+                return {
+                    success: 0,
+                    message: 'Something went wrong while creating log',
+                    error: err
+                }
+            })
+        if (logData && logData.error && (logData.error !== null)) {
+            return false
+        }
+        return true;
 
     }
 

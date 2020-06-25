@@ -25,7 +25,7 @@ const PushMessageSchema = mongoose.Schema({
     title: String,
     message: String,
     priority: String,
-    tagsCsv: String,
+    filtersJsonArr: Array,
     segmentsCsv: String,
     metaInfo: String,
     flag: Number,
