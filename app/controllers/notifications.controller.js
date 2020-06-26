@@ -10,7 +10,7 @@ function notificationsController(methods, options) {
     const MysqlNotificationManagerConfig = methods.loadModel('notification_manager_config');
     const MysqlPushMessage = methods.loadModel('push_message');
     const MysqlNotificationManagerLog = methods.loadModel('notification_manager_log');
-
+    const constants = require('../helpers/constants');
 
     // const Notification = methods.loadModel('notification');
     const MongodbNotificationManagerConfig = require('../models/notificationManagerConfigs.model');
@@ -137,6 +137,8 @@ function notificationsController(methods, options) {
         if (this.timer === null) {
             await this.loadConfig();
             await this.nextIteration();
+            this.isProcessingOnGoing = false;
+
         }
 
         /*
@@ -175,12 +177,12 @@ function notificationsController(methods, options) {
             await Promise.all(notificationsList.map(async (notification) => {
                 await this.sendPushNotificationMongoDb(notification);
                 let updateData = await this.markAsSentToMongoDb(notification);
+                let insert = await this.insertLogToMongoDb(notification);
+
             }));
         }
         else if (this.isMySqlDb) {
-       
             await Promise.all(notificationsList.map(async (notification) => {
-                
                 const areThereAnyCommas = notification.segments_csv.includes(',');
                 if (areThereAnyCommas) {
                     notification.segments_csv = notification.segments_csv.split(',');
@@ -188,8 +190,11 @@ function notificationsController(methods, options) {
                 if (notification.filters_json_arr) {
                     notification.notification.filters_json_arr = JSON.parse(notification.notification.filters_json_arr);
                 }
+                notification.sent_at = 
                 await this.sendPushNotificationMySql(notification);
                 let updateData = await this.markAsSentToMySqlDb(notification);
+                let insert = await this.insertLogToMySqlDb(notification);
+
             }));
 
         }
@@ -267,7 +272,6 @@ b. call mark push notification as sent
             console.log(response);
             console.log("response");
             console.log(response.body.id);
-            // let insert = await this.insertLog(notification);
 
         } catch (e) {
             console.log("e")
@@ -289,7 +293,7 @@ b. call mark push notification as sent
         1. Sends push notifciation using the given notification object through onesignal
         2. call insertonotificationmanagerlog with the raw message to onesignal
         */
-
+        
         var notificationData = {
             contents: {
                 'tr': notification.title,
@@ -320,28 +324,55 @@ b. call mark push notification as sent
         1. identify the db
         2.  call the corresponding log fn
         */
-        if (isMySqlDb) {
-            let insertLog = await insertLogToMySqlDb(notification);
+        if (this.isMySqlDb) {
+            let insertLog = await this.insertLogToMySqlDb(notification);
 
-        } else if (isMongoDb) {
-            let insertLog = await insertLogToMongoDb(notification);
+        } else if (this.isMongoDb) {
+            let insertLog = await this.insertLogToMongoDb(notification);
         }
     }
 
 
     this.insertLogToMySqlDb = async (notification) => {
-        
-        let logObj = {
+        let data = await MysqlPushMessage.findOne({
+            where : {
+                id : notification.id,
+                status : 1
+                // is_sent : 1
+            },
+            // attributes:['sent_at']
+        })
+        .catch(err => {
+            return {
+                success: 0,
+                message: 'Something went wrong while get mongodb push message',
+                error: err
+            }
+        })
 
+    if (data && data.error && (data.error !== null)) {
+        return false
+    }
+ 
+      data =  JSON.parse(JSON.stringify(data));
+        let notificationData = JSON.stringify(notification);
+        let logObj = {
+            message_type : constants.PUSH_MESSAGE_TYPE,
+            data : notificationData,
+            sent_at : new Date(data.sent_at),
+            status : 1
         }
         let logData = await MysqlNotificationManagerLog.create(logObj)
             .catch(err => {
                 return {
                     success: 0,
-                    message: 'Something went wrong while creating otp',
+                    message: 'Something went wrong while creating mysql log',
                     error: err
                 }
             })
+            console.log("logData")
+            console.log(logData)
+            console.log("logData")
 
         if (logData && logData.error && (logData.error !== null)) {
             return false
@@ -350,17 +381,41 @@ b. call mark push notification as sent
 
     }
     this.insertLogToMongoDb = async (notification) => {
+        let data = await MongodbPushMessage.findOne({
+                id : notification.id,
+                status : 1,
+                isSent : 1
+        },{
+            sentAt : 1
+        })
+        .catch(err => {
+            return {
+                success: 0,
+                message: 'Something went wrong while get mongodb push message',
+                error: err
+            }
+        })
+
+    if (data && data.error && (data.error !== null)) {
+        return false
+    }
         let logObj = {
+            message_type : constants.PUSH_MESSAGE_TYPE,
+            data : notification,
+            sentAt : data.sentAt,
             tsCreatedAt: Date.now(),
-            tsModifiedAt: null
+            tsModifiedAt: null,
+            status : 1
+
         }
+
         const notificationLogObj = new MongodbNotificationManagerLog(logObj);
 
         let logData = await notificationLogObj.save()
             .catch(err => {
                 return {
                     success: 0,
-                    message: 'Something went wrong while creating log',
+                    message: 'Something went wrong while creating mongodb log',
                     error: err
                 }
             })
