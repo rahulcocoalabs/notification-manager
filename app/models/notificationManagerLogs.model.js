@@ -23,7 +23,7 @@ var options = {
 };
 const NotificationManagerLogSchema = mongoose.Schema({
     messageType: String,
-    data: String,
+    data: Object,
     flag: Number,
     metaInfo: String,
     sentAt: Number,

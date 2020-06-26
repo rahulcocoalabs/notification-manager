@@ -5,6 +5,10 @@ const Sequelize = require('sequelize');
 const OneSignal = require('onesignal-node');
 const client = new OneSignal.Client('65011cfa-62d9-4e0c-b249-cb3f679da7d9', 'ZGUxYThkNzctM2MxMC00MWM0LTk3Y2YtYjk5MDY1NGQxMThk');
 const Op = Sequelize.Op;
+const MongodbNotificationManagerConfig = require('../models/notificationManagerConfigs.model');
+const MongodbPushMessage = require('../models/pushMessages.model');
+const MongodbNotificationManagerLog = require('../models/notificationManagerLogs.model');
+
 function notificationsController(methods, options) {
 
     const MysqlNotificationManagerConfig = methods.loadModel('notification_manager_config');
@@ -13,9 +17,6 @@ function notificationsController(methods, options) {
     const constants = require('../helpers/constants');
 
     // const Notification = methods.loadModel('notification');
-    const MongodbNotificationManagerConfig = require('../models/notificationManagerConfigs.model');
-    const MongodbPushMessage = require('../models/pushMessages.model');
-    const MongodbNotificationManagerLog = require('../models/notification_manager_log.model');
 
     this.isProcessingOnGoing = false;
     this.scanningIntervalSeconds = 5;
@@ -29,7 +30,7 @@ function notificationsController(methods, options) {
         this.isMongoDb = options.mongoose !== undefined;
         this.isMySqlDb = options.sequelize !== undefined;
         await this.loadSettings();
-      
+
         if (this.oneSignalConfig) {
             this.oneSignalClient = new OneSignal.Client(this.oneSignalConfig.oneSignalAppId, this.oneSignalConfig.oneSignalApiKey);
         }
@@ -178,7 +179,6 @@ function notificationsController(methods, options) {
                 await this.sendPushNotificationMongoDb(notification);
                 let updateData = await this.markAsSentToMongoDb(notification);
                 let insert = await this.insertLogToMongoDb(notification);
-
             }));
         }
         else if (this.isMySqlDb) {
@@ -190,8 +190,8 @@ function notificationsController(methods, options) {
                 if (notification.filters_json_arr) {
                     notification.notification.filters_json_arr = JSON.parse(notification.notification.filters_json_arr);
                 }
-                notification.sent_at = 
-                await this.sendPushNotificationMySql(notification);
+                notification.sent_at =
+                    await this.sendPushNotificationMySql(notification);
                 let updateData = await this.markAsSentToMySqlDb(notification);
                 let insert = await this.insertLogToMySqlDb(notification);
 
@@ -229,8 +229,8 @@ b. call mark push notification as sent
     }
 
     this.getPushMessageFromMongoDb = async () => {
-        let notificationList = await MongodbPushMessage.findAll({
-            is_sent: 0,
+        let notificationList = await MongodbPushMessage.find({
+            isSent: 0,
             status: 1
         })
             .catch(err => {
@@ -243,7 +243,9 @@ b. call mark push notification as sent
         if (notificationList && notificationList.error && (notificationList.error !== null)) {
             return [];
         }
-
+        console.log("notificationList")
+        console.log(notificationList)
+        console.log("notificationList")
         return notificationList;
         //return all messages with status 1 and not sent, from mongo db
 
@@ -266,7 +268,7 @@ b. call mark push notification as sent
 
         // using async/await
         try {
-          
+
             const response = await this.oneSignalClient.createNotification(notificationData);
             console.log("response");
             console.log(response);
@@ -293,7 +295,7 @@ b. call mark push notification as sent
         1. Sends push notifciation using the given notification object through onesignal
         2. call insertonotificationmanagerlog with the raw message to onesignal
         */
-        
+
         var notificationData = {
             contents: {
                 'tr': notification.title,
@@ -306,6 +308,7 @@ b. call mark push notification as sent
         // using async/await
         try {
             const response = await this.oneSignalClient.createNotification(notificationData);
+
             console.log(response.body.id);
             let insert = await this.insertLog(notification);
 
@@ -335,32 +338,34 @@ b. call mark push notification as sent
 
     this.insertLogToMySqlDb = async (notification) => {
         let data = await MysqlPushMessage.findOne({
-            where : {
-                id : notification.id,
-                status : 1
+            where: {
+                id: notification.id,
+                status: 1
                 // is_sent : 1
             },
             // attributes:['sent_at']
         })
-        .catch(err => {
-            return {
-                success: 0,
-                message: 'Something went wrong while get mongodb push message',
-                error: err
-            }
-        })
+            .catch(err => {
+                return {
+                    success: 0,
+                    message: 'Something went wrong while get mongodb push message',
+                    error: err
+                }
+            })
 
-    if (data && data.error && (data.error !== null)) {
-        return false
-    }
- 
-      data =  JSON.parse(JSON.stringify(data));
+        if (data && data.error && (data.error !== null)) {
+            return false
+        }
+
+        data = JSON.parse(JSON.stringify(data));
+        notification.sent_at =  new Date(data.sent_at);
+        notification.is_sent = 1;
         let notificationData = JSON.stringify(notification);
         let logObj = {
-            message_type : constants.PUSH_MESSAGE_TYPE,
-            data : notificationData,
-            sent_at : new Date(data.sent_at),
-            status : 1
+            message_type: constants.PUSH_MESSAGE_TYPE,
+            data: notificationData,
+            sent_at: new Date(data.sent_at),
+            status: 1
         }
         let logData = await MysqlNotificationManagerLog.create(logObj)
             .catch(err => {
@@ -370,9 +375,9 @@ b. call mark push notification as sent
                     error: err
                 }
             })
-            console.log("logData")
-            console.log(logData)
-            console.log("logData")
+        console.log("logData")
+        console.log(logData)
+        console.log("logData")
 
         if (logData && logData.error && (logData.error !== null)) {
             return false
@@ -382,33 +387,39 @@ b. call mark push notification as sent
     }
     this.insertLogToMongoDb = async (notification) => {
         let data = await MongodbPushMessage.findOne({
-                id : notification.id,
-                status : 1,
-                isSent : 1
-        },{
-            sentAt : 1
+            _id: notification.id,
+            status: 1,
+            isSent: 1
+        }, {
+            sentAt: 1
         })
-        .catch(err => {
-            return {
-                success: 0,
-                message: 'Something went wrong while get mongodb push message',
-                error: err
-            }
-        })
+            .catch(err => {
+                return {
+                    success: 0,
+                    message: 'Something went wrong while get mongodb push message',
+                    error: err
+                }
+            })
 
-    if (data && data.error && (data.error !== null)) {
-        return false
-    }
+        if (data && data.error && (data.error !== null)) {
+            return false
+        }
+        console.log("data")
+        console.log(data)
+        console.log("data")
+        notification.sentAt = data.sentAt;
+        notification.isSent = 1;
         let logObj = {
-            message_type : constants.PUSH_MESSAGE_TYPE,
-            data : notification,
-            sentAt : data.sentAt,
+            messageType: constants.PUSH_MESSAGE_TYPE,
+            data: notification,
+            sentAt: data.sentAt,
             tsCreatedAt: Date.now(),
             tsModifiedAt: null,
-            status : 1
-
+            status: 1
         }
-
+console.log("logObj")
+console.log(logObj)
+console.log("logObj")
         const notificationLogObj = new MongodbNotificationManagerLog(logObj);
 
         let logData = await notificationLogObj.save()
@@ -419,6 +430,9 @@ b. call mark push notification as sent
                     error: err
                 }
             })
+            console.log("logData")
+            console.log(logData)
+            console.log("logData")
         if (logData && logData.error && (logData.error !== null)) {
             return false
         }
@@ -454,7 +468,7 @@ b. call mark push notification as sent
     }
 
     this.markAsSentToMongoDb = async (notification) => {
-        let updateData = await MongodbNotificationManagerConfig.update({
+        let updateData = await MongodbPushMessage.update({
             _id: notification.id,
             isSent: 0,
             status: 1
@@ -473,6 +487,9 @@ b. call mark push notification as sent
         if (updateData && updateData.error && (updateData.error !== null)) {
             return false;
         }
+        console.log("updateData")
+        console.log(updateData)
+        console.log("updateData")
         return true;
     }
 
